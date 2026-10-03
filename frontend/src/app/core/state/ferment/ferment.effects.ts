@@ -82,5 +82,4 @@ export class FermentEffects {
       default:
         return this.service.deletePackaging(payload['id'] as string);
     }
-  }
-}
+  }}

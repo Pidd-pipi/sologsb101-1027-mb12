@@ -1,6 +1,8 @@
 /**
  * IndexedDB 持久化层（Dexie 封装）
- * - 数据库名 gbbrewhouse-db，数据结构版本号 version(1) 与 upgrade() 迁移逻辑
+ * - 数据库名 gbbrewhouse-db，数据结构版本 version(2)
+ * - v2：配方改为不可变版本行（seriesId / versionNo / status），糖化步与煮沸投加带 needsReview，
+ *   发酵读数与罐装批次带 seriesId / recipeVersionNo，历史实绩继续绑定原版本
  * - 配方 / 麦芽 / 酒花 / 糖化步 / 煮沸投加 / 发酵读数 / 罐装批次 七张表分表存储
  * - 首次打开自动播种互相引用的演示数据，保证每个页面打开都有内容
  */
@@ -19,10 +21,10 @@ import { seedDatabase } from './seed';
 export const DB_NAME = 'gbbrewhouse-db';
 
 /** 当前数据结构版本号（每次调整字段结构必须 +1 并补迁移） */
-export const DB_SCHEMA_VERSION = 1;
+export const DB_SCHEMA_VERSION = 2;
 
 /** 行结构修订号 */
-export const ROW_REVISION = 1;
+export const ROW_REVISION = 2;
 
 export interface Revisioned {
   revision: number;
@@ -50,27 +52,60 @@ class GbBrewhouseDatabase extends Dexie {
   constructor() {
     super(DB_NAME);
 
-    this.version(DB_SCHEMA_VERSION)
+    // v1：初始七表结构（保留声明以便老库逐级升级）
+    this.version(1).stores({
+      recipes: 'id, name, style, targetOg, updatedAt',
+      malts: 'id, recipeId, name, ebc, type, updatedAt',
+      hops: 'id, recipeId, name, alphaPct, form, updatedAt',
+      mashSteps: 'id, recipeId, seq, state, updatedAt',
+      boilAdds: 'id, recipeId, atMin, purpose, updatedAt',
+      ferments: 'id, recipeId, batchNo, date, state, updatedAt',
+      packagings: 'id, recipeId, batchNo, packDate, container, updatedAt'
+    });
+
+    // v2：配方不可变版本化
+    this.version(2)
       .stores({
-        recipes: 'id, name, style, targetOg, updatedAt',
+        recipes: 'id, seriesId, versionNo, status, name, style, targetOg, updatedAt',
         malts: 'id, recipeId, name, ebc, type, updatedAt',
         hops: 'id, recipeId, name, alphaPct, form, updatedAt',
-        mashSteps: 'id, recipeId, seq, state, updatedAt',
-        boilAdds: 'id, recipeId, atMin, purpose, updatedAt',
-        ferments: 'id, recipeId, batchNo, date, state, updatedAt',
-        packagings: 'id, recipeId, batchNo, packDate, container, updatedAt'
+        mashSteps: 'id, recipeId, seq, state, needsReview, updatedAt',
+        boilAdds: 'id, recipeId, atMin, purpose, needsReview, updatedAt',
+        ferments: 'id, recipeId, seriesId, batchNo, date, state, updatedAt',
+        packagings: 'id, recipeId, seriesId, batchNo, packDate, container, updatedAt'
       })
       .upgrade(async (tx) => {
-        // 结构迁移：为历史行补齐行修订号与时间戳；新建库时各表为空，迁移天然幂等
-        const tableNames = ['recipes', 'malts', 'hops', 'mashSteps', 'boilAdds', 'ferments', 'packagings'];
-        for (const name of tableNames) {
+        // 历史配方全部视为 v1 正式投产版本：seriesId 取自身 id，版本不可变
+        await tx
+          .table('recipes')
+          .toCollection()
+          .modify((row: Record<string, unknown>) => {
+            if (typeof row['seriesId'] !== 'string') row['seriesId'] = row['id'];
+            if (typeof row['versionNo'] !== 'number') row['versionNo'] = 1;
+            if (typeof row['status'] !== 'string') row['status'] = '正式投产';
+            if (typeof row['planPrimaryTempC'] !== 'number') row['planPrimaryTempC'] = 19;
+            if (typeof row['planDiacetylTempC'] !== 'number') row['planDiacetylTempC'] = 21;
+            if (typeof row['planDays'] !== 'number') row['planDays'] = 14;
+            if (typeof row['planNeedsReview'] !== 'boolean') row['planNeedsReview'] = false;
+          });
+        // 待执行工序复制到新版时的复核标记：老数据默认无需复核、无来源行
+        for (const name of ['mashSteps', 'boilAdds', 'malts', 'hops']) {
           await tx
             .table(name)
             .toCollection()
             .modify((row: Record<string, unknown>) => {
-              row.revision = ROW_REVISION;
-              if (typeof row.createdAt !== 'number') row.createdAt = Date.now();
-              if (typeof row.updatedAt !== 'number') row.updatedAt = row.createdAt;
+              if (typeof row['needsReview'] !== 'boolean') row['needsReview'] = false;
+              if (typeof row['sourceId'] !== 'string') row['sourceId'] = '';
+            });
+        }
+        // 历史实绩（发酵读数 / 罐装批次）继续绑定原版本，同时归入同一配方系列
+        for (const name of ['ferments', 'packagings']) {
+          await tx
+            .table(name)
+            .toCollection()
+            .modify((row: Record<string, unknown>) => {
+              if (typeof row['seriesId'] !== 'string') row['seriesId'] = String(row['recipeId'] ?? '');
+              if (typeof row['recipeVersionNo'] !== 'number') row['recipeVersionNo'] = 1;
             });
         }
       });
@@ -102,22 +137,33 @@ export function initDatabase(): Promise<void> {
 
 export async function listRecipes(): Promise<RecipeRow[]> {
   const rows = await db.recipes.toArray();
-  return rows.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
+  return rows.sort((a, b) =>
+    a.seriesId === b.seriesId
+      ? a.versionNo - b.versionNo
+      : a.name.localeCompare(b.name, 'zh-Hans-CN')
+  );
 }
 
-/** 删除配方：级联删除麦芽、酒花、糖化步、煮沸投加、发酵读数与罐装批次 */
+/**
+ * 删除配方：删除整个系列的全部版本，并级联删除各版本下的
+ * 麦芽、酒花、糖化步、煮沸投加、发酵读数与罐装批次。
+ */
 export async function removeRecipe(id: string): Promise<void> {
   await db.transaction(
     'rw',
     [db.recipes, db.malts, db.hops, db.mashSteps, db.boilAdds, db.ferments, db.packagings],
     async () => {
-      await db.malts.where('recipeId').equals(id).delete();
-      await db.hops.where('recipeId').equals(id).delete();
-      await db.mashSteps.where('recipeId').equals(id).delete();
-      await db.boilAdds.where('recipeId').equals(id).delete();
-      await db.ferments.where('recipeId').equals(id).delete();
-      await db.packagings.where('recipeId').equals(id).delete();
-      await db.recipes.delete(id);
+      const target = await db.recipes.get(id);
+      if (!target) return;
+      const seriesIds = [target.seriesId];
+      const versionIds = (await db.recipes.where('seriesId').anyOf(seriesIds).toArray()).map((row) => row.id);
+      await db.malts.where('recipeId').anyOf(versionIds).delete();
+      await db.hops.where('recipeId').anyOf(versionIds).delete();
+      await db.mashSteps.where('recipeId').anyOf(versionIds).delete();
+      await db.boilAdds.where('recipeId').anyOf(versionIds).delete();
+      await db.ferments.where('seriesId').anyOf(seriesIds).delete();
+      await db.packagings.where('seriesId').anyOf(seriesIds).delete();
+      await db.recipes.where('seriesId').anyOf(seriesIds).delete();
     }
   );
 }
@@ -174,7 +220,40 @@ function stamp<T>(row: T): T & Revisioned {
   return { ...row, revision: ROW_REVISION, createdAt: now, updatedAt: now };
 }
 
+/** 补齐旧备份（v1 结构）缺失的版本化字段，保证导入老备份后语义不回退 */
+function normalizeSnapshot(snapshot: DatabaseSnapshot): void {
+  for (const recipe of snapshot.recipes) {
+    if (!recipe.seriesId) recipe.seriesId = recipe.id;
+    if (!recipe.versionNo) recipe.versionNo = 1;
+    if (!recipe.status) recipe.status = '正式投产';
+    if (typeof recipe.planPrimaryTempC !== 'number') recipe.planPrimaryTempC = 19;
+    if (typeof recipe.planDiacetylTempC !== 'number') recipe.planDiacetylTempC = 21;
+    if (typeof recipe.planDays !== 'number') recipe.planDays = 14;
+    if (typeof recipe.planNeedsReview !== 'boolean') recipe.planNeedsReview = false;
+  }
+  for (const step of snapshot.mashSteps) {
+    if (typeof step.needsReview !== 'boolean') step.needsReview = false;
+    if (typeof step.sourceId !== 'string') step.sourceId = '';
+  }
+  for (const add of snapshot.boilAdds) {
+    if (typeof add.needsReview !== 'boolean') add.needsReview = false;
+    if (typeof add.sourceId !== 'string') add.sourceId = '';
+  }
+  for (const malt of snapshot.malts) {
+    if (typeof malt.sourceId !== 'string') malt.sourceId = '';
+  }
+  for (const hop of snapshot.hops) {
+    if (typeof hop.sourceId !== 'string') hop.sourceId = '';
+  }
+  const recipeById = new Map(snapshot.recipes.map((recipe) => [recipe.id, recipe]));
+  for (const row of [...snapshot.ferments, ...snapshot.packagings]) {
+    if (!row.seriesId) row.seriesId = recipeById.get(row.recipeId)?.seriesId ?? row.recipeId;
+    if (!row.recipeVersionNo) row.recipeVersionNo = recipeById.get(row.recipeId)?.versionNo ?? 1;
+  }
+}
+
 export async function importSnapshot(snapshot: DatabaseSnapshot): Promise<void> {
+  normalizeSnapshot(snapshot);
   await db.transaction(
     'rw',
     [db.recipes, db.malts, db.hops, db.mashSteps, db.boilAdds, db.ferments, db.packagings],

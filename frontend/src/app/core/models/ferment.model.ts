@@ -6,8 +6,12 @@ export interface Ferment {
   id: string;
   /** 批次号 */
   batchNo: string;
-  /** 所属配方 */
+  /** 所属配方（历史实绩绑定的具体版本行 recipes.id） */
   recipeId: string;
+  /** 所属配方系列：配方改版后读数仍归同一款酒，不被新版改写 */
+  seriesId: string;
+  /** 投产时使用的配方版本号（留痕，展示用） */
+  recipeVersionNo: number;
   /** 日期 YYYY-MM-DD */
   date: string;
   /** 比重 */
@@ -30,6 +34,8 @@ export function createEmptyFerment(): Omit<Ferment, 'id'> {
   return {
     batchNo: '',
     recipeId: '',
+    seriesId: '',
+    recipeVersionNo: 1,
     date: new Date().toISOString().slice(0, 10),
     gravity: 1.05,
     tempC: 19,

@@ -36,7 +36,7 @@ import {
   selectFermentFilter,
   selectSelectedBatchNo
 } from '../../core/state/ferment/ferment.selectors';
-import { selectAllRecipes, selectSelectedRecipeId } from '../../core/state/recipe/recipe.selectors';
+import { selectAllRecipes, selectDefaultProductionRecipe, selectSelectedRecipeId } from '../../core/state/recipe/recipe.selectors';
 import { RecipeActions } from '../../core/state/recipe/recipe.actions';
 
 @Component({
@@ -164,7 +164,7 @@ import { RecipeActions } from '../../core/state/recipe/recipe.actions';
                     <td>{{ reading.diacetylPpm }}</td>
                     <td>{{ declineOf(reading.date) }}</td>
                     <td><app-style-tag [value]="reading.state"></app-style-tag></td>
-                    <td class="muted">{{ reading.batchNo }}</td>
+                    <td class="muted">{{ reading.batchNo }} · {{ versionLabel(reading.recipeId, reading.recipeVersionNo) }}</td>
                     <td>
                       <button mat-button type="button" (click)="edit(reading)">编辑</button>
                       <button mat-button color="warn" type="button" (click)="remove(reading)">删除</button>
@@ -183,10 +183,10 @@ import { RecipeActions } from '../../core/state/recipe/recipe.actions';
           <mat-card-content>
             <div class="form-grid">
               <mat-form-field appearance="outline">
-                <mat-label>所属配方</mat-label>
+                <mat-label>所属配方版本</mat-label>
                 <mat-select [(ngModel)]="form.recipeId">
                   @for (recipe of recipes(); track recipe.id) {
-                    <mat-option [value]="recipe.id">{{ recipe.name }}</mat-option>
+                    <mat-option [value]="recipe.id">{{ recipe.name }} · v{{ recipe.versionNo }}（{{ recipe.status }}）</mat-option>
                   }
                 </mat-select>
               </mat-form-field>
@@ -305,6 +305,7 @@ export class FermentTrendComponent implements OnInit {
   readonly filter = this.store.selectSignal(selectFermentFilter);
   readonly recipes = this.store.selectSignal(selectAllRecipes);
   readonly selectedRecipeId = this.store.selectSignal(selectSelectedRecipeId);
+  readonly productionRecipe = this.store.selectSignal(selectDefaultProductionRecipe);
   readonly allFerments = this.store.selectSignal(selectAllFerments);
 
   readonly currentReadings = this.store.selectSignal(selectCurrentBatchFerments);
@@ -333,6 +334,12 @@ export class FermentTrendComponent implements OnInit {
     this.store.dispatch(FermentActions.selectBatch({ batchNo }));
   }
 
+  /** 读数绑定的版本标签（历史读数继续绑定投产时的版本） */
+  versionLabel(recipeId: string, versionNo: number): string {
+    const recipe = this.recipes().find((item) => item.id === recipeId);
+    return recipe ? `v${versionNo}（${recipe.status}）` : `v${versionNo}（版本已删）`;
+  }
+
   declineOf(date: string): number {
     const point = this.metrics().points.find((item) => item.date === date);
     return point ? point.declinePerDay : 0;
@@ -349,7 +356,8 @@ export class FermentTrendComponent implements OnInit {
   openCreate(): void {
     this.editingId = null;
     this.form = createEmptyFerment();
-    this.form.recipeId = this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
+    // 新读数默认落到当前系列的正式投产版，避免误记到已停用的历史版本
+    this.form.recipeId = this.productionRecipe()?.id ?? this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
     this.form.batchNo = this.selectedBatchNo() ?? '';
     this.formVisible = true;
   }
@@ -359,6 +367,8 @@ export class FermentTrendComponent implements OnInit {
     this.form = {
       batchNo: reading.batchNo,
       recipeId: reading.recipeId,
+      seriesId: reading.seriesId,
+      recipeVersionNo: reading.recipeVersionNo,
       date: reading.date,
       gravity: reading.gravity,
       tempC: reading.tempC,

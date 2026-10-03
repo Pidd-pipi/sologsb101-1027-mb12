@@ -1,7 +1,7 @@
 /** 发酵读数 feature selectors */
 import { createFeatureSelector, createSelector } from '@ngrx/store';
 import { GravityTrendService } from '../../services/gravity-trend.service';
-import { selectSelectedRecipe } from '../recipe/recipe.selectors';
+import { selectAllRecipes } from '../recipe/recipe.selectors';
 import { FermentState } from './ferment.reducer';
 
 export const selectFermentState = createFeatureSelector<FermentState>('ferment');
@@ -40,9 +40,12 @@ export const selectFilteredFerments = createSelector(
   }
 );
 
-/** 当前批次的派生指标（表观发酵度 / 收得率 / 复调提示） */
+/** 当前批次派生指标（目标值兜底取该批次读数绑定的具体配方版本） */
 export const selectCurrentBatchMetrics = createSelector(
   selectCurrentBatchFerments,
-  selectSelectedRecipe,
-  (ferments, recipe) => GravityTrendService.calculate(ferments, recipe)
+  selectAllRecipes,
+  (ferments, recipes) => {
+    const boundRecipe = recipes.find((item) => item.id === ferments[0]?.recipeId) ?? null;
+    return GravityTrendService.calculate(ferments, boundRecipe);
+  }
 );

@@ -20,7 +20,7 @@ import { filtersToQueryParams, queryParamsToFilters, type FilterModel, type Filt
 import { RecipeActions } from '../../core/state/recipe/recipe.actions';
 import { selectFilteredHops, selectFilteredMalts, selectIngredientsFilter } from '../../core/state/ingredients/ingredients.selectors';
 import { IngredientsActions } from '../../core/state/ingredients/ingredients.actions';
-import { selectAllRecipes, selectSelectedRecipeId } from '../../core/state/recipe/recipe.selectors';
+import { selectAllRecipes, selectDefaultProductionRecipe, selectSelectedRecipeId } from '../../core/state/recipe/recipe.selectors';
 import { ebcColor as brewEbcColor, totalGrainKg, weightedEbc } from '../../core/utils/brew';
 
 @Component({
@@ -55,12 +55,27 @@ import { ebcColor as brewEbcColor, totalGrainKg, weightedEbc } from '../../core/
       </div>
 
       <div class="badge-row">
-        <app-stat-badge label="麦芽条目" [value]="malts().length" suffix="条" tone="primary" icon="grass" />
-        <app-stat-badge label="酒花条目" [value]="hops().length" suffix="条" tone="warning" icon="local_florist" />
+        <app-stat-badge label="麦芽条目" [value]="scopedMalts().length" suffix="条" tone="primary" icon="grass" />
+        <app-stat-badge label="酒花条目" [value]="scopedHops().length" suffix="条" tone="warning" icon="local_florist" />
         <app-stat-badge label="加权平均色度" [value]="avgEbc()" suffix="EBC" tone="info" icon="palette" />
         <app-stat-badge label="总投料量" [value]="grainKg()" suffix="kg" tone="success" icon="scale" />
         <app-stat-badge label="酒花用量合计" [value]="hopGram()" suffix="g" tone="danger" icon="bolt" />
       </div>
+
+      <mat-card appearance="outlined">
+        <mat-card-content class="scope-bar">
+          <span class="muted">当前配方版本：</span>
+          <mat-form-field appearance="outline" class="scope-select">
+            <mat-label>选择配方版本</mat-label>
+            <mat-select [value]="scopedRecipeId()" (selectionChange)="scopeRecipe($event.value)">
+              @for (recipe of recipes(); track recipe.id) {
+                <mat-option [value]="recipe.id">{{ recipe.name }} · v{{ recipe.versionNo }}（{{ recipe.status }}）</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+          <span class="muted">改正式版本的配比会封存旧版并生成待复核新版。</span>
+        </mat-card-content>
+      </mat-card>
 
       <app-filter-bar
         [filters]="filter()"
@@ -70,16 +85,16 @@ import { ebcColor as brewEbcColor, totalGrainKg, weightedEbc } from '../../core/
         (reset)="onResetFilter()"
       ></app-filter-bar>
 
-      @if (malts().length === 0 && hops().length === 0) {
+      @if (scopedMalts().length === 0 && scopedHops().length === 0) {
         <app-empty-panel
-          title="辅料库还是空的"
-          description="为当前配方添加麦芽与酒花，系统会自动回算色度与用量。"
+          title="该配方版本还没有辅料"
+          description="为当前配方版本添加麦芽与酒花，系统会自动回算色度与用量。"
           createText="新增麦芽"
           (create)="openMalt()"
         ></app-empty-panel>
       } @else {
         <mat-card appearance="outlined">
-          <mat-card-header><mat-card-title>麦芽（{{ malts().length }}）</mat-card-title></mat-card-header>
+          <mat-card-header><mat-card-title>麦芽（{{ scopedMalts().length }}）</mat-card-title></mat-card-header>
           <mat-card-content>
             <table class="data-table">
               <thead>
@@ -94,7 +109,7 @@ import { ebcColor as brewEbcColor, totalGrainKg, weightedEbc } from '../../core/
                 </tr>
               </thead>
               <tbody>
-                @for (malt of malts(); track malt.id) {
+                @for (malt of scopedMalts(); track malt.id) {
                   <tr>
                     <td>{{ malt.name }}</td>
                     <td>{{ malt.type }}</td>
@@ -117,7 +132,7 @@ import { ebcColor as brewEbcColor, totalGrainKg, weightedEbc } from '../../core/
         </mat-card>
 
         <mat-card appearance="outlined">
-          <mat-card-header><mat-card-title>酒花（{{ hops().length }}）</mat-card-title></mat-card-header>
+          <mat-card-header><mat-card-title>酒花（{{ scopedHops().length }}）</mat-card-title></mat-card-header>
           <mat-card-content>
             <table class="data-table">
               <thead>
@@ -132,7 +147,7 @@ import { ebcColor as brewEbcColor, totalGrainKg, weightedEbc } from '../../core/
                 </tr>
               </thead>
               <tbody>
-                @for (hop of hops(); track hop.id) {
+                @for (hop of scopedHops(); track hop.id) {
                   <tr>
                     <td>{{ hop.name }}</td>
                     <td>{{ hop.form }}</td>
@@ -161,7 +176,7 @@ import { ebcColor as brewEbcColor, totalGrainKg, weightedEbc } from '../../core/
                 <mat-label>所属配方</mat-label>
                 <mat-select [(ngModel)]="maltForm.recipeId">
                   @for (recipe of recipes(); track recipe.id) {
-                    <mat-option [value]="recipe.id">{{ recipe.name }}</mat-option>
+                    <mat-option [value]="recipe.id">{{ recipe.name }} · v{{ recipe.versionNo }}（{{ recipe.status }}）</mat-option>
                   }
                 </mat-select>
               </mat-form-field>
@@ -207,7 +222,7 @@ import { ebcColor as brewEbcColor, totalGrainKg, weightedEbc } from '../../core/
                 <mat-label>所属配方</mat-label>
                 <mat-select [(ngModel)]="hopForm.recipeId">
                   @for (recipe of recipes(); track recipe.id) {
-                    <mat-option [value]="recipe.id">{{ recipe.name }}</mat-option>
+                    <mat-option [value]="recipe.id">{{ recipe.name }} · v{{ recipe.versionNo }}（{{ recipe.status }}）</mat-option>
                   }
                 </mat-select>
               </mat-form-field>
@@ -247,6 +262,15 @@ import { ebcColor as brewEbcColor, totalGrainKg, weightedEbc } from '../../core/
   `,
   styles: [
     `
+      .scope-bar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .scope-select {
+        width: 320px;
+      }
       .swatch {
         display: inline-block;
         width: 12px;
@@ -273,6 +297,19 @@ export class IngredientLibraryComponent implements OnInit {
   readonly filter = this.store.selectSignal(selectIngredientsFilter);
   readonly recipes = this.store.selectSignal(selectAllRecipes);
   readonly selectedRecipeId = this.store.selectSignal(selectSelectedRecipeId);
+  readonly productionRecipe = this.store.selectSignal(selectDefaultProductionRecipe);
+
+  /** 页面聚焦版本：显式选中优先，其次投产版，再次列表第一条 */
+  readonly scopedRecipeId = computed(
+    () => this.selectedRecipeId() ?? this.productionRecipe()?.id ?? this.recipes()[0]?.id ?? ''
+  );
+  /** 仅展示聚焦版本的麦芽（辅料编辑作用在投产版上，改配比会自动 fork 新版） */
+  readonly scopedMalts = computed(() =>
+    this.malts().filter((item) => item.recipeId === this.scopedRecipeId())
+  );
+  readonly scopedHops = computed(() =>
+    this.hops().filter((item) => item.recipeId === this.scopedRecipeId())
+  );
 
   readonly selects: FilterSelectConfig[] = [
     { key: 'types', label: '麦芽类型', options: MALT_TYPES.map((type) => ({ label: type, value: type })) },
@@ -285,17 +322,17 @@ export class IngredientLibraryComponent implements OnInit {
   ];
 
   readonly avgEbc = computed(() => {
-    const list = this.malts();
+    const list = this.scopedMalts();
     return list.length === 0 ? 0 : weightedEbc(list);
   });
 
   readonly grainKg = computed(() => {
-    const recipe = this.recipes().find((item) => item.id === this.selectedRecipeId()) ?? this.recipes()[0];
+    const recipe = this.recipes().find((item) => item.id === this.scopedRecipeId());
     if (!recipe) return 0;
     return totalGrainKg(recipe.batchSizeL, recipe.targetOg);
   });
 
-  readonly hopGram = computed(() => this.hops().reduce((sum, item) => sum + item.amountG, 0));
+  readonly hopGram = computed(() => this.scopedHops().reduce((sum, item) => sum + item.amountG, 0));
 
   maltFormVisible = false;
   hopFormVisible = false;
@@ -319,6 +356,10 @@ export class IngredientLibraryComponent implements OnInit {
     return brewEbcColor(ebc);
   }
 
+  scopeRecipe(recipeId: string): void {
+    this.store.dispatch(RecipeActions.selectRecipe({ id: recipeId }));
+  }
+
   maltKg(malt: Malt): number {
     return Number(((this.grainKg() * malt.ratioPct) / 100).toFixed(2));
   }
@@ -326,7 +367,7 @@ export class IngredientLibraryComponent implements OnInit {
   openMalt(): void {
     this.editingMaltId = null;
     this.maltForm = createEmptyMalt();
-    this.maltForm.recipeId = this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
+    this.maltForm.recipeId = this.scopedRecipeId();
     this.maltFormVisible = true;
   }
 
@@ -365,7 +406,7 @@ export class IngredientLibraryComponent implements OnInit {
   openHop(): void {
     this.editingHopId = null;
     this.hopForm = createEmptyHop();
-    this.hopForm.recipeId = this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
+    this.hopForm.recipeId = this.scopedRecipeId();
     this.hopFormVisible = true;
   }
 

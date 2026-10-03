@@ -16,10 +16,12 @@ export interface Malt {
   ratioPct: number;
   /** 类型 */
   type: MaltType;
+  /** 复制到新版本时的来源行 id（首版为空） */
+  sourceId?: string;
 }
 
 export const MALT_TYPES: MaltType[] = ['基础麦芽', '特种麦芽', '烤制麦芽'];
 
 export function createEmptyMalt(): Omit<Malt, 'id'> {
-  return { recipeId: '', name: '', ebc: 4, origin: '', ratioPct: 80, type: '基础麦芽' };
+  return { recipeId: '', name: '', ebc: 4, origin: '', ratioPct: 80, type: '基础麦芽', sourceId: '' };
 }

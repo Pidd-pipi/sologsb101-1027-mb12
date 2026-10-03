@@ -25,7 +25,7 @@ import {
 } from '../../core/models/filter.model';
 import { MashActions } from '../../core/state/mash/mash.actions';
 import { selectAllMashSteps, selectMashFilter } from '../../core/state/mash/mash.selectors';
-import { selectAllRecipes, selectSelectedRecipeId } from '../../core/state/recipe/recipe.selectors';
+import { selectAllRecipes, selectDefaultProductionRecipe, selectSelectedRecipeId } from '../../core/state/recipe/recipe.selectors';
 import { RecipeActions } from '../../core/state/recipe/recipe.actions';
 
 @Component({
@@ -75,10 +75,11 @@ import { RecipeActions } from '../../core/state/recipe/recipe.actions';
               <mat-label>选择配方</mat-label>
               <mat-select [value]="selectedRecipeId()" (selectionChange)="selectRecipe($event.value)">
                 @for (recipe of recipes(); track recipe.id) {
-                  <mat-option [value]="recipe.id">{{ recipe.name }}</mat-option>
+                  <mat-option [value]="recipe.id">{{ recipe.name }} · v{{ recipe.versionNo }}（{{ recipe.status }}）</mat-option>
                 }
               </mat-select>
             </mat-form-field>
+            <span class="muted">改正式版本的升温步会生成待复核新版；「签署完成」是车间实绩，不变版、继续绑定当前版本。</span>
           </div>
         </mat-card-content>
       </mat-card>
@@ -109,6 +110,9 @@ import { RecipeActions } from '../../core/state/recipe/recipe.actions';
                   <div class="mash-item__title">
                     <strong>{{ step.tempC }} ℃</strong>
                     <app-style-tag [value]="step.state"></app-style-tag>
+                    @if (step.needsReview) {
+                      <span class="review-flag">新版待复核</span>
+                    }
                     <span class="muted">{{ step.minutes }} min · 水量 {{ step.waterL }} L</span>
                   </div>
                   <div class="muted">温度 {{ step.tempC }} ℃ 保温 {{ step.minutes }} 分钟，洗糟用水 {{ step.waterL }} L</div>
@@ -120,6 +124,9 @@ import { RecipeActions } from '../../core/state/recipe/recipe.actions';
                   </button>
                   @if (step.state !== '已完成') {
                     <button mat-button color="primary" type="button" (click)="complete(step)">签署完成</button>
+                  }
+                  @if (step.needsReview) {
+                    <button mat-button color="primary" type="button" (click)="review(step)">复核通过</button>
                   }
                   <button mat-button type="button" (click)="edit(step)">编辑</button>
                   <button mat-button color="warn" type="button" (click)="remove(step)">删除</button>
@@ -212,6 +219,13 @@ import { RecipeActions } from '../../core/state/recipe/recipe.actions';
         flex-wrap: wrap;
         justify-content: flex-end;
       }
+      .review-flag {
+        background: #fbe6c8;
+        color: #7a4a12;
+        border-radius: 999px;
+        padding: 1px 8px;
+        font-size: 11px;
+      }
     `
   ]
 })
@@ -226,13 +240,14 @@ export class MashPlanComponent implements OnInit {
   readonly filter = this.store.selectSignal(selectMashFilter);
   readonly recipes = this.store.selectSignal(selectAllRecipes);
   readonly selectedRecipeId = this.store.selectSignal(selectSelectedRecipeId);
+  readonly productionRecipe = this.store.selectSignal(selectDefaultProductionRecipe);
 
   readonly selects: FilterSelectConfig[] = [
     { key: 'states', label: '状态', options: MASH_STATES.map((state) => ({ label: state, value: state })) }
   ];
 
   readonly steps = computed(() => {
-    const recipeId = this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
+    const recipeId = this.productionRecipe()?.id ?? this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
     const filter = this.filter();
     const keyword = String(filter['keyword'] ?? '').trim().toLowerCase();
     const states = Array.isArray(filter['states']) ? (filter['states'] as string[]) : [];
@@ -290,13 +305,19 @@ export class MashPlanComponent implements OnInit {
 
   complete(step: MashStep): void {
     this.store.dispatch(MashActions.updateMashStep({ id: step.id, patch: { state: '已完成' } }));
-    this.snack.open('已签署完成', '关闭', { duration: 1800 });
+    this.snack.open('已签署完成，实绩绑定当前版本', '关闭', { duration: 1800 });
+  }
+
+  /** 复核从旧版复制过来的待执行糖化步 */
+  review(step: MashStep): void {
+    this.store.dispatch(RecipeActions.reviewChild({ table: 'mashSteps', id: step.id }));
+    this.snack.open('该升温步已复核通过', '关闭', { duration: 1800 });
   }
 
   openCreate(): void {
     this.editingId = null;
     this.form = createEmptyMashStep();
-    this.form.recipeId = this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
+    this.form.recipeId = this.productionRecipe()?.id ?? this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
     this.formVisible = true;
   }
 
@@ -307,7 +328,8 @@ export class MashPlanComponent implements OnInit {
       tempC: step.tempC,
       minutes: step.minutes,
       waterL: step.waterL,
-      state: step.state
+      state: step.state,
+      needsReview: step.needsReview
     };
     this.formVisible = true;
   }

@@ -24,7 +24,7 @@ import {
 import { BoilActions } from '../../core/state/boil/boil.actions';
 import { selectAllBoilAdds, selectBoilFilter } from '../../core/state/boil/boil.selectors';
 import { selectAllHops } from '../../core/state/ingredients/ingredients.selectors';
-import { selectAllRecipes, selectSelectedRecipe, selectSelectedRecipeId } from '../../core/state/recipe/recipe.selectors';
+import { selectAllRecipes, selectDefaultProductionRecipe, selectSelectedRecipe, selectSelectedRecipeId } from '../../core/state/recipe/recipe.selectors';
 import { RecipeActions } from '../../core/state/recipe/recipe.actions';
 import { estimateIbu, purposeByAtMin } from '../../core/utils/brew';
 
@@ -62,7 +62,7 @@ import { estimateIbu, purposeByAtMin } from '../../core/utils/brew';
       <div class="badge-row">
         <app-stat-badge label="投加条目" [value]="adds().length" suffix="条" tone="primary" icon="add_circle" />
         <app-stat-badge label="估算 IBU 合计" [value]="totalIbu()" suffix="IBU" tone="warning" icon="bolt" />
-        <app-stat-badge label="目标 IBU" [value]="selectedRecipe()?.targetIbu ?? 0" suffix="IBU" tone="info" icon="flag" />
+        <app-stat-badge label="目标 IBU" [value]="productionRecipe()?.targetIbu ?? selectedRecipe()?.targetIbu ?? 0" suffix="IBU" tone="info" icon="flag" />
         <app-stat-badge label="IBU 偏差" [value]="ibuDelta()" tone="danger" icon="compare_arrows" />
       </div>
 
@@ -74,7 +74,7 @@ import { estimateIbu, purposeByAtMin } from '../../core/utils/brew';
               <mat-label>选择配方</mat-label>
               <mat-select [value]="selectedRecipeId()" (selectionChange)="selectRecipe($event.value)">
                 @for (recipe of recipes(); track recipe.id) {
-                  <mat-option [value]="recipe.id">{{ recipe.name }}</mat-option>
+                  <mat-option [value]="recipe.id">{{ recipe.name }} · v{{ recipe.versionNo }}（{{ recipe.status }}）</mat-option>
                 }
               </mat-select>
             </mat-form-field>
@@ -121,12 +121,18 @@ import { estimateIbu, purposeByAtMin } from '../../core/utils/brew';
                       @if (add.id === nextAdd()?.id) {
                         <span class="next-flag">下一投加点</span>
                       }
+                      @if (add.needsReview) {
+                        <span class="review-flag">新版待复核</span>
+                      }
                     </td>
                     <td>{{ add.material }}</td>
                     <td>{{ add.amountG }}</td>
                     <td>{{ add.purpose }}<span class="muted">（{{ suggestedPurpose(add) }}）</span></td>
                     <td>{{ ibuOf(add) }}</td>
                     <td>
+                      @if (add.needsReview) {
+                        <button mat-button color="primary" type="button" (click)="review(add)">复核通过</button>
+                      }
                       <button mat-button type="button" (click)="edit(add)">编辑</button>
                       <button mat-button color="warn" type="button" (click)="remove(add)">删除</button>
                     </td>
@@ -202,6 +208,14 @@ import { estimateIbu, purposeByAtMin } from '../../core/utils/brew';
         padding: 1px 8px;
         font-size: 11px;
       }
+      .review-flag {
+        margin-left: 6px;
+        background: #fbe6c8;
+        color: #7a4a12;
+        border-radius: 999px;
+        padding: 1px 8px;
+        font-size: 11px;
+      }
     `
   ]
 })
@@ -219,13 +233,14 @@ export class BoilTimelineComponent implements OnInit {
   readonly recipes = this.store.selectSignal(selectAllRecipes);
   readonly selectedRecipeId = this.store.selectSignal(selectSelectedRecipeId);
   readonly selectedRecipe = this.store.selectSignal(selectSelectedRecipe);
+  readonly productionRecipe = this.store.selectSignal(selectDefaultProductionRecipe);
 
   readonly selects: FilterSelectConfig[] = [
     { key: 'purposes', label: '用途', options: BOIL_PURPOSES.map((purpose) => ({ label: purpose, value: purpose })) }
   ];
 
   readonly adds = computed(() => {
-    const recipeId = this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
+    const recipeId = this.productionRecipe()?.id ?? this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
     const filter = this.filter();
     const keyword = String(filter['keyword'] ?? '').trim().toLowerCase();
     const purposes = Array.isArray(filter['purposes']) ? (filter['purposes'] as string[]) : [];
@@ -245,7 +260,7 @@ export class BoilTimelineComponent implements OnInit {
   readonly totalIbu = computed(() => Number(this.adds().reduce((sum, add) => sum + this.ibuOf(add), 0).toFixed(1)));
 
   readonly ibuDelta = computed(() => {
-    const target = this.selectedRecipe()?.targetIbu ?? 0;
+    const target = this.productionRecipe()?.targetIbu ?? this.selectedRecipe()?.targetIbu ?? 0;
     return Number((this.totalIbu() - target).toFixed(1));
   });
 
@@ -270,12 +285,18 @@ export class BoilTimelineComponent implements OnInit {
     return `还剩 ${add.atMin} 分钟`;
   }
 
+  /** 复核从旧版复制过来的投加计划 */
+  review(add: BoilAdd): void {
+    this.store.dispatch(RecipeActions.reviewChild({ table: 'boilAdds', id: add.id }));
+    this.snack.open('该投加已复核通过', '关闭', { duration: 1800 });
+  }
+
   suggestedPurpose(add: BoilAdd): string {
     return purposeByAtMin(add.atMin);
   }
 
   ibuOf(add: BoilAdd): number {
-    const recipe = this.selectedRecipe();
+    const recipe = this.productionRecipe() ?? this.selectedRecipe();
     const hop = this.hops().find((item) => item.name === add.material);
     const alpha = hop?.alphaPct ?? 8;
     return estimateIbu(alpha, add.amountG, add.atMin, recipe?.batchSizeL ?? 20, recipe?.targetOg ?? 1.055);
@@ -284,7 +305,7 @@ export class BoilTimelineComponent implements OnInit {
   openCreate(): void {
     this.editingId = null;
     this.form = createEmptyBoilAdd();
-    this.form.recipeId = this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
+    this.form.recipeId = this.productionRecipe()?.id ?? this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
     this.formVisible = true;
   }
 
@@ -295,7 +316,8 @@ export class BoilTimelineComponent implements OnInit {
       atMin: add.atMin,
       material: add.material,
       amountG: add.amountG,
-      purpose: add.purpose
+      purpose: add.purpose,
+      needsReview: add.needsReview
     };
     this.formVisible = true;
   }

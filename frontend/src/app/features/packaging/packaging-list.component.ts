@@ -24,7 +24,7 @@ import {
 import { PackagingActions } from '../../core/state/packaging/packaging.actions';
 import { selectAllPackagings, selectFilteredPackagings, selectPackagingFilter } from '../../core/state/packaging/packaging.selectors';
 import { selectAllFerments } from '../../core/state/ferment/ferment.selectors';
-import { selectAllRecipes, selectSelectedRecipeId } from '../../core/state/recipe/recipe.selectors';
+import { selectAllRecipes, selectDefaultProductionRecipe, selectSelectedRecipeId } from '../../core/state/recipe/recipe.selectors';
 import { RecipeActions } from '../../core/state/recipe/recipe.actions';
 import { FermentActions } from '../../core/state/ferment/ferment.actions';
 import {
@@ -124,13 +124,13 @@ import { abvFromGravity } from '../../core/utils/brew';
                 @for (row of filtered(); track row.id) {
                   <tr>
                     <td>{{ row.batchNo }}</td>
-                    <td>{{ recipeName(row.recipeId) }}</td>
+                    <td>{{ recipeName(row.recipeId) }} <span class="muted">v{{ row.recipeVersionNo }}</span></td>
                     <td>{{ row.packDate }}</td>
                     <td>{{ row.container }}</td>
                     <td>{{ row.quantity }}</td>
                     <td>{{ row.carbonationVol }}</td>
                     <td>{{ row.abv }} %vol</td>
-                    <td>{{ realizedOg(row.recipeId) }} / {{ realizedFg(row.recipeId) }}</td>
+                    <td>{{ realizedOg(row.seriesId, row.recipeId) }} / {{ realizedFg(row.seriesId, row.recipeId) }}</td>
                     <td>
                       <button mat-button type="button" (click)="edit(row)">编辑</button>
                       <button mat-button color="warn" type="button" (click)="remove(row)">删除</button>
@@ -152,7 +152,7 @@ import { abvFromGravity } from '../../core/utils/brew';
                 <mat-label>所属配方</mat-label>
                 <mat-select [(ngModel)]="form.recipeId">
                   @for (recipe of recipes(); track recipe.id) {
-                    <mat-option [value]="recipe.id">{{ recipe.name }}</mat-option>
+                    <mat-option [value]="recipe.id">{{ recipe.name }} · v{{ recipe.versionNo }}（{{ recipe.status }}）</mat-option>
                   }
                 </mat-select>
               </mat-form-field>
@@ -203,7 +203,7 @@ import { abvFromGravity } from '../../core/utils/brew';
               <mat-label>选择配方</mat-label>
               <mat-select [value]="archiveRecipeId()" (selectionChange)="onArchiveRecipeChange($event.value)">
                 @for (recipe of recipes(); track recipe.id) {
-                  <mat-option [value]="recipe.id">{{ recipe.name }}</mat-option>
+                  <mat-option [value]="recipe.id">{{ recipe.name }} · v{{ recipe.versionNo }}（{{ recipe.status }}）</mat-option>
                 }
               </mat-select>
             </mat-form-field>
@@ -305,6 +305,7 @@ export class PackagingListComponent implements OnInit {
   readonly filter = this.store.selectSignal(selectPackagingFilter);
   readonly recipes = this.store.selectSignal(selectAllRecipes);
   readonly selectedRecipeId = this.store.selectSignal(selectSelectedRecipeId);
+  readonly productionRecipe = this.store.selectSignal(selectDefaultProductionRecipe);
   private readonly ferments = this.store.selectSignal(selectAllFerments);
 
   readonly selects: FilterSelectConfig[] = [
@@ -337,7 +338,7 @@ export class PackagingListComponent implements OnInit {
       ? 0
       : Number((list.reduce((sum, item) => sum + item.carbonationVol, 0) / list.length).toFixed(2));
   });
-  readonly recipeCoverage = computed(() => new Set(this.filtered().map((item) => item.recipeId)).size);
+  readonly recipeCoverage = computed(() => new Set(this.filtered().map((item) => item.seriesId)).size);
   readonly suggestedAbv = computed(() => this.abvForBatch(this.form.batchNo, this.form.recipeId));
 
   async ngOnInit(): Promise<void> {
@@ -359,31 +360,38 @@ export class PackagingListComponent implements OnInit {
   }
 
   recipeName(recipeId: string): string {
-    return this.recipes().find((item) => item.id === recipeId)?.name ?? '配方已删除';
+    return this.recipes().find((item) => item.id === recipeId)?.name ?? '旧版配方';
   }
 
-  private realized(recipeId: string): { og: number; fg: number } {
+  /** 实绩首末读数：同系列跨版本合并，单批读数仍保留绑定版本 */
+  private realized(_seriesId: string, versionId: string): { og: number; fg: number } {
+    const version = this.recipes().find((item) => item.id === versionId);
+    const seriesId = version?.seriesId ?? _seriesId;
     const rows = this.ferments()
-      .filter((item) => item.recipeId === recipeId)
+      .filter((item) => (seriesId ? item.seriesId === seriesId : item.recipeId === versionId))
       .sort((a, b) => a.date.localeCompare(b.date));
     if (rows.length === 0) return { og: 0, fg: 0 };
     return { og: rows[0].gravity, fg: rows[rows.length - 1].gravity };
   }
 
-  realizedOg(recipeId: string): number {
-    return this.realized(recipeId).og;
+  realizedOg(seriesId: string, versionId: string): number {
+    return this.realized(seriesId, versionId).og;
   }
 
-  realizedFg(recipeId: string): number {
-    return this.realized(recipeId).fg;
+  realizedFg(seriesId: string, versionId: string): number {
+    return this.realized(seriesId, versionId).fg;
   }
 
   private abvForBatch(batchNo: string, recipeId: string): number {
+    const version = this.recipes().find((item) => item.id === recipeId);
     const rows = this.ferments()
-      .filter((item) => item.batchNo === batchNo || (batchNo.length === 0 && item.recipeId === recipeId))
+      .filter((item) =>
+        item.batchNo === batchNo ||
+        (batchNo.length === 0 && (version ? item.seriesId === version.seriesId : item.recipeId === recipeId))
+      )
       .sort((a, b) => a.date.localeCompare(b.date));
     if (rows.length < 2) {
-      const fallback = this.realized(recipeId);
+      const fallback = this.realized(version?.seriesId ?? '', recipeId);
       return abvFromGravity(fallback.og, fallback.fg);
     }
     return abvFromGravity(rows[0].gravity, rows[rows.length - 1].gravity);
@@ -397,7 +405,7 @@ export class PackagingListComponent implements OnInit {
   openCreate(): void {
     this.editingId = null;
     this.form = createEmptyPackaging();
-    this.form.recipeId = this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
+    this.form.recipeId = this.productionRecipe()?.id ?? this.selectedRecipeId() ?? this.recipes()[0]?.id ?? '';
     this.form.batchNo = this.ferments()[0]?.batchNo ?? '';
     this.form.abv = this.abvForBatch(this.form.batchNo, this.form.recipeId);
     this.formVisible = true;
@@ -408,6 +416,8 @@ export class PackagingListComponent implements OnInit {
     this.form = {
       batchNo: row.batchNo,
       recipeId: row.recipeId,
+      seriesId: row.seriesId,
+      recipeVersionNo: row.recipeVersionNo,
       packDate: row.packDate,
       container: row.container,
       quantity: row.quantity,

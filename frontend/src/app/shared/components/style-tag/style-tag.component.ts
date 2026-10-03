@@ -26,6 +26,9 @@ const STYLES: Record<string, TagStyle> = {
   未开始: { background: '#e6e6e6', color: '#555555', icon: 'schedule', label: '未开始' },
   进行中: { background: '#f7e2b8', color: '#7a5a12', icon: 'play_circle', label: '进行中' },
   已完成: { background: '#d7e8c8', color: '#2f5a24', icon: 'check_circle', label: '已完成' },
+  待复核: { background: '#fbe6c8', color: '#7a4a12', icon: 'rule', label: '待复核' },
+  正式投产: { background: '#d7e8c8', color: '#2f5a24', icon: 'verified', label: '正式投产' },
+  已停用: { background: '#e3e3e0', color: '#6b6b66', icon: 'archive', label: '已停用' },
   计划: { background: '#e6e6e6', color: '#555555', icon: 'event', label: '计划' }
 };
 

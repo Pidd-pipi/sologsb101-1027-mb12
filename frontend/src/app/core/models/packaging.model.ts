@@ -6,8 +6,12 @@ export interface Packaging {
   id: string;
   /** 批次号 */
   batchNo: string;
-  /** 所属配方 */
+  /** 所属配方（罐装实绩绑定的具体版本行 recipes.id） */
   recipeId: string;
+  /** 所属配方系列 */
+  seriesId: string;
+  /** 罐装时使用的配方版本号（留痕，展示用） */
+  recipeVersionNo: number;
   /** 罐装日期 */
   packDate: string;
   /** 容器 */
@@ -26,6 +30,8 @@ export function createEmptyPackaging(): Omit<Packaging, 'id'> {
   return {
     batchNo: '',
     recipeId: '',
+    seriesId: '',
+    recipeVersionNo: 1,
     packDate: new Date().toISOString().slice(0, 10),
     container: '瓶装',
     quantity: 24,

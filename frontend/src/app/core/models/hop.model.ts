@@ -16,10 +16,12 @@ export interface Hop {
   form: HopForm;
   /** 用量 g */
   amountG: number;
+  /** 复制到新版本时的来源行 id（首版为空） */
+  sourceId?: string;
 }
 
 export const HOP_FORMS: HopForm[] = ['颗粒', '整花', '浸膏'];
 
 export function createEmptyHop(): Omit<Hop, 'id'> {
-  return { recipeId: '', name: '', alphaPct: 12, origin: '', form: '颗粒', amountG: 30 };
+  return { recipeId: '', name: '', alphaPct: 12, origin: '', form: '颗粒', amountG: 30, sourceId: '' };
 }
