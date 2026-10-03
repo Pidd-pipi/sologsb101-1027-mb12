@@ -7,6 +7,7 @@ import { Actions, createEffect, ofType } from '@ngrx/effects';
 import type { Action } from '@ngrx/store';
 import { catchError, exhaustMap, forkJoin, from, map, of, switchMap } from 'rxjs';
 import { RecipeService } from '../../services/recipe.service';
+import { ImpactRequiredError, RecipeVersionService, VersionConflictError } from '../../services/recipe-version.service';
 import { IngredientsActions } from '../ingredients/ingredients.actions';
 import { MashActions } from '../mash/mash.actions';
 import { BoilActions } from '../boil/boil.actions';
@@ -16,6 +17,7 @@ import { RecipeActions } from './recipe.actions';
 export class RecipeEffects {
   private readonly actions$ = inject(Actions);
   private readonly service = inject(RecipeService);
+  private readonly versions = inject(RecipeVersionService);
 
   /** 一次性加载配方主表 + 全部从属表 */
   reloadAll$ = createEffect(() =>
@@ -65,6 +67,63 @@ export class RecipeEffects {
           )
         );
       })
+    )
+  );
+
+  /** 创建不可变新版本：并发冲突 → 冲突弹窗；成功 → 重载 */
+  createRecipeVersion$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(RecipeActions.createRecipeVersion),
+      exhaustMap((action) =>
+        from(
+          this.versions.createVersion({
+            baseVersionId: action.baseVersionId,
+            payload: action.payload,
+            maltRatios: action.maltRatios,
+            hopAmounts: action.hopAmounts
+          })
+        ).pipe(
+          switchMap((result) => [
+            RecipeActions.createRecipeVersionSuccess({ id: result.id, versionNo: result.versionNo }),
+            RecipeActions.reloadAll()
+          ]),
+          catchError((error: unknown) => {
+            if (error instanceof VersionConflictError) {
+              return of(
+                RecipeActions.createRecipeVersionConflict({
+                  conflicts: error.conflicts,
+                  baseVersionId: error.baseVersionId,
+                  latestVersionId: error.latestVersionId
+                })
+              );
+            }
+            return of(RecipeActions.loadFailure({ error: error instanceof Error ? error.message : '新版本保存失败' }));
+          })
+        )
+      )
+    )
+  );
+
+  /** 切新版投产：未结束批次影响未确认 → 影响弹窗；确认后启用 */
+  activateRecipeVersion$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(RecipeActions.activateRecipeVersion),
+      exhaustMap((action) =>
+        from(this.versions.activateWithImpact(action.versionId, action.confirmImpact)).pipe(
+          switchMap(() => [
+            RecipeActions.activateRecipeVersionSuccess({ versionId: action.versionId }),
+            RecipeActions.reloadAll()
+          ]),
+          catchError((error: unknown) => {
+            if (error instanceof ImpactRequiredError) {
+              return of(
+                RecipeActions.activateRecipeVersionImpactRequired({ versionId: action.versionId, impact: error.impact })
+              );
+            }
+            return of(RecipeActions.loadFailure({ error: error instanceof Error ? error.message : '启用投产失败' }));
+          })
+        )
+      )
     )
   );
 

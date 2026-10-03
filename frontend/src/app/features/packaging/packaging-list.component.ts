@@ -23,7 +23,7 @@ import {
 } from '../../core/models/filter.model';
 import { PackagingActions } from '../../core/state/packaging/packaging.actions';
 import { selectAllPackagings, selectFilteredPackagings, selectPackagingFilter } from '../../core/state/packaging/packaging.selectors';
-import { selectAllFerments } from '../../core/state/ferment/ferment.selectors';
+import { selectRealFerments } from '../../core/state/ferment/ferment.selectors';
 import { selectAllRecipes, selectSelectedRecipeId } from '../../core/state/recipe/recipe.selectors';
 import { RecipeActions } from '../../core/state/recipe/recipe.actions';
 import { FermentActions } from '../../core/state/ferment/ferment.actions';
@@ -305,7 +305,7 @@ export class PackagingListComponent implements OnInit {
   readonly filter = this.store.selectSignal(selectPackagingFilter);
   readonly recipes = this.store.selectSignal(selectAllRecipes);
   readonly selectedRecipeId = this.store.selectSignal(selectSelectedRecipeId);
-  private readonly ferments = this.store.selectSignal(selectAllFerments);
+  private readonly ferments = this.store.selectSignal(selectRealFerments);
 
   readonly selects: FilterSelectConfig[] = [
     { key: 'containers', label: '容器', options: CONTAINER_TYPES.map((item) => ({ label: item, value: item })) }

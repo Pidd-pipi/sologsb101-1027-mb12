@@ -16,6 +16,8 @@ export interface MashStep {
   waterL: number;
   /** 状态 */
   state: MashStepState;
+  /** 待复核：由旧版复制到新版、尚未经酿酒师确认的计划步 */
+  pendingReview?: boolean;
 }
 
 export const MASH_STATES: MashStepState[] = ['未开始', '进行中', '已完成'];

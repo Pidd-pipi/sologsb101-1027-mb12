@@ -18,6 +18,10 @@ export interface Ferment {
   diacetylPpm: number;
   /** 阶段 */
   state: FermentState;
+  /** 待复核：由旧版复制到新版、尚未经酿酒师确认的发酵计划 */
+  pendingReview?: boolean;
+  /** 计划标记：仅表示未结束批次将在新版继续，不是真实历史读数（不参与趋势 / 实绩计算） */
+  isPlan?: boolean;
 }
 
 export const FERMENT_STATES: FermentState[] = ['主发酵', '双乙酰还原', '已结束'];

@@ -3,7 +3,7 @@
  * 全部读写走 IdbTableService → Dexie → IndexedDB。
  */
 import { Injectable, inject } from '@angular/core';
-import type { Recipe } from '../models/recipe.model';
+import type { Recipe, RecipeDraft } from '../models/recipe.model';
 import type { Malt } from '../models/malt.model';
 import type { Hop } from '../models/hop.model';
 import type { MashStep } from '../models/mash-step.model';
@@ -12,7 +12,6 @@ import type { Ferment } from '../models/ferment.model';
 import type { Packaging } from '../models/packaging.model';
 import {
   db,
-  removeRecipe,
   ROW_REVISION,
   type BoilAddRow,
   type FermentRow,
@@ -24,10 +23,12 @@ import {
 } from '../utils/db';
 import { createId } from '../utils/uuid';
 import { IdbTableService } from './idb-table.service';
+import { RecipeVersionService } from './recipe-version.service';
 
 @Injectable({ providedIn: 'root' })
 export class RecipeService {
   private readonly idb = inject(IdbTableService);
+  private readonly versions = inject(RecipeVersionService);
 
   /* ------------------------------ 配方 ------------------------------ */
 
@@ -35,8 +36,20 @@ export class RecipeService {
     return db.recipes.toArray().then((rows) => rows.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN')));
   }
 
-  async createRecipe(payload: Omit<Recipe, 'id'>): Promise<string> {
-    const row = this.idb.buildRow(payload, 'recipe') as RecipeRow;
+  async createRecipe(payload: RecipeDraft): Promise<string> {
+    const id = createId('recipe');
+    const now = Date.now();
+    const row: RecipeRow = {
+      ...payload,
+      id,
+      familyId: id,
+      versionNo: 1,
+      baseVersionId: null,
+      versionState: '生效中',
+      revision: ROW_REVISION,
+      createdAt: now,
+      updatedAt: now
+    };
     await db.recipes.put(row);
     return row.id;
   }
@@ -45,8 +58,11 @@ export class RecipeService {
     return this.idb.update(db.recipes, id, patch);
   }
 
-  deleteRecipe(id: string): Promise<void> {
-    return removeRecipe(id);
+  /** 删除整个配方家族（所有版本及其从属数据） */
+  async deleteRecipe(id: string): Promise<void> {
+    const version = await db.recipes.get(id);
+    if (!version) return;
+    await this.versions.deleteFamily(version.familyId);
   }
 
   /* ------------------------------ 麦芽 ------------------------------ */

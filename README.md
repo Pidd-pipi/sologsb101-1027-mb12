@@ -4,6 +4,8 @@
 
 核心动作：**建配方与风格 → 维护麦芽酒花辅料库 → 排糖化升温步 → 录煮沸投加 → 跟踪发酵比重 → 罐装归档与结构版本导出**。
 
+**正式配方不可变版本化**：风格、目标指标、批次体积或原料配比变化时生成新版本，待执行糖化步、煮沸投加与发酵计划复制到新版并标记待复核，已完成工序、发酵读数与罐装批次继续绑定原版本（历史实绩不被改写）。两窗口同时修改时只接受基于最新版本的保存，旧窗口列出冲突字段；切新版投产前明确显示未结束批次影响并等确认。
+
 纯前端单页应用（Angular 18 + TypeScript + Angular Material + RxJS + NgRx + Angular Router + Dexie），**无后端、无数据库服务、无 API 服务**，全部数据保存在浏览器本地（IndexedDB），刷新或重启浏览器后仍然存在。
 
 ---
@@ -92,13 +94,13 @@ sologsb101-1027/
         ├── index.html  main.ts  styles.css
         └── app/
             ├── app.component.ts  app.config.ts  app.routes.ts
-            ├── core/models/         recipe malt hop mash-step boil-add ferment packaging（+ filter）
-            ├── core/services/       recipe.service.ts gravity-trend.service.ts idb-table.service.ts
+            ├── core/models/         recipe recipe-version malt hop mash-step boil-add ferment packaging（+ filter）
+            ├── core/services/       recipe.service.ts recipe-version.service.ts gravity-trend.service.ts idb-table.service.ts
             ├── core/state/          recipe/{actions,reducer,selectors,effects}
             │                        ferment/{actions,reducer,selectors,effects}
             │                        ingredients/ mash/ boil/ packaging/（各 actions + reducer + selectors）
             ├── core/utils/          brew.ts db.ts export.ts seed.ts uuid.ts
-            ├── shared/components/   style-tag/ filter-bar/ stat-badge/ empty-panel/
+            ├── shared/components/   style-tag/ filter-bar/ stat-badge/ empty-panel/ version-badge/
             └── features/            recipes/ ingredients/ mash/ boil/ ferment/ packaging/
 ```
 
@@ -106,9 +108,12 @@ sologsb101-1027/
 
 ## 六、数据存储说明
 
-- **IndexedDB 库名**：`gbbrewhouse-db`（Dexie 封装），结构版本号 `version(1)`，并带 `upgrade()` 迁移逻辑（为历史行补齐行修订号与时间戳）。
+- **IndexedDB 库名**：`gbbrewhouse-db`（Dexie 封装），结构版本号 `version(2)`，并带 `upgrade()` 迁移逻辑（v1→v2 为历史配方行补齐家族 / 版本号 / 版本状态，为从属行补齐待复核标记）。
 - **分表存储**：`recipes` 配方、`malts` 麦芽、`hops` 酒花、`mashSteps` 糖化步、`boilAdds` 煮沸投加、`ferments` 发酵读数、`packagings` 罐装批次，共 7 张表；每行带 `revision` / `createdAt` / `updatedAt`。
+- **配方不可变版本化**：`recipes` 行即版本，同一家族（`familyId`）下版本号（`versionNo`）递增，每版不可变。风格 / 目标 OG/FG/IBU/EBC / 批次体积 / 原料配比变化时生成新版本（`versionState: '待复核'`），并复制待执行糖化步、煮沸投加与未结束批次的发酵计划（均标记 `pendingReview`，发酵计划另带 `isPlan`）；已完成糖化步、真实发酵读数与罐装批次继续绑定原版本。启用投产后新版转 `生效中`、旧版转 `已归档`。
+- **乐观并发控制**：每版记录 `baseVersionId`（基于哪版修改）。保存时若家族最新版已不是 `baseVersionId`（其他窗口已保存），则拒绝保存并列出冲突字段（风格 / 目标指标 / 原料配比的旧值 → 最新值），供旧窗口基于最新版本重新编辑。
+- **投产影响确认**：切新版投产前评估仍引用旧版的未结束批次，明确列出影响并等用户确认后才执行。
 - **首屏自动播种**：`core/utils/db.ts` 的 `initDatabase()` 在 `recipes` 表为空时调用 `seedDatabase()`，灌入互相引用的三层演示数据（配方 → 麦芽/酒花/糖化步/煮沸投加 → 发酵读数 → 罐装批次），保证 6 个页面首次打开都有内容；播种幂等。
-- **状态流**：页面只 `dispatch` NgRx actions 并 `select` 状态流，所有读写最终由 `core/services/recipe.service.ts` → `IdbTableService` → Dexie 落库，跨页状态不留在组件字段。
+- **状态流**：页面只 `dispatch` NgRx actions 并 `select` 状态流，所有读写最终由 `core/services/recipe.service.ts` / `recipe-version.service.ts` → `IdbTableService` → Dexie 落库，跨页状态不留在组件字段。
 - **无后端**：没有 API 服务、没有数据库容器；容器本身无状态，不挂载任何卷。
-- **级联规则**：删除配方会级联删除其麦芽、酒花、糖化步、煮沸投加、发酵读数与罐装批次。
+- **级联规则**：删除配方会级联删除整个家族的所有版本及其麦芽、酒花、糖化步、煮沸投加、发酵读数与罐装批次。

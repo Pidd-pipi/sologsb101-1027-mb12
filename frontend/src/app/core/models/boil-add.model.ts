@@ -14,6 +14,8 @@ export interface BoilAdd {
   amountG: number;
   /** 用途 */
   purpose: BoilPurpose;
+  /** 待复核：由旧版复制到新版、尚未经酿酒师确认的投加计划 */
+  pendingReview?: boolean;
 }
 
 export const BOIL_PURPOSES: BoilPurpose[] = ['苦味', '风味', '香气', '澄清'];

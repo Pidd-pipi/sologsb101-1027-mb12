@@ -19,7 +19,7 @@ import { seedDatabase } from './seed';
 export const DB_NAME = 'gbbrewhouse-db';
 
 /** 当前数据结构版本号（每次调整字段结构必须 +1 并补迁移） */
-export const DB_SCHEMA_VERSION = 1;
+export const DB_SCHEMA_VERSION = 2;
 
 /** 行结构修订号 */
 export const ROW_REVISION = 1;
@@ -52,7 +52,7 @@ class GbBrewhouseDatabase extends Dexie {
 
     this.version(DB_SCHEMA_VERSION)
       .stores({
-        recipes: 'id, name, style, targetOg, updatedAt',
+        recipes: 'id, name, style, targetOg, familyId, versionNo, versionState, updatedAt',
         malts: 'id, recipeId, name, ebc, type, updatedAt',
         hops: 'id, recipeId, name, alphaPct, form, updatedAt',
         mashSteps: 'id, recipeId, seq, state, updatedAt',
@@ -61,16 +61,30 @@ class GbBrewhouseDatabase extends Dexie {
         packagings: 'id, recipeId, batchNo, packDate, container, updatedAt'
       })
       .upgrade(async (tx) => {
-        // 结构迁移：为历史行补齐行修订号与时间戳；新建库时各表为空，迁移天然幂等
-        const tableNames = ['recipes', 'malts', 'hops', 'mashSteps', 'boilAdds', 'ferments', 'packagings'];
-        for (const name of tableNames) {
+        // 结构迁移 v1 → v2：配方版本化。
+        // - 历史配方行补齐 familyId / versionNo / baseVersionId / versionState（视为首版、生效中）。
+        // - 从属行补齐 pendingReview / isPlan 默认值。
+        // 新建库直接走最新 schema，upgrade 不会执行；播种数据已带出版本字段。
+        await tx.table('recipes').toCollection().modify((row: Record<string, unknown>) => {
+          if (typeof row.familyId !== 'string') row.familyId = row.id;
+          if (typeof row.versionNo !== 'number') row.versionNo = 1;
+          if (!('baseVersionId' in row)) row.baseVersionId = null;
+          if (typeof row.versionState !== 'string') row.versionState = '生效中';
+        });
+        const childTables: Array<{ name: string; planFlag: boolean }> = [
+          { name: 'malts', planFlag: false },
+          { name: 'hops', planFlag: false },
+          { name: 'mashSteps', planFlag: false },
+          { name: 'boilAdds', planFlag: false },
+          { name: 'ferments', planFlag: true }
+        ];
+        for (const { name, planFlag } of childTables) {
           await tx
             .table(name)
             .toCollection()
             .modify((row: Record<string, unknown>) => {
-              row.revision = ROW_REVISION;
-              if (typeof row.createdAt !== 'number') row.createdAt = Date.now();
-              if (typeof row.updatedAt !== 'number') row.updatedAt = row.createdAt;
+              if (typeof row.pendingReview !== 'boolean') row.pendingReview = false;
+              if (planFlag && typeof row.isPlan !== 'boolean') row.isPlan = false;
             });
         }
       });

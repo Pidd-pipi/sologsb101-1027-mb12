@@ -11,22 +11,25 @@ export const selectFermentFilter = createSelector(selectFermentState, (state) =>
 export const selectSelectedBatchNo = createSelector(selectFermentState, (state) => state.batchNo);
 export const selectFermentError = createSelector(selectFermentState, (state) => state.error);
 
-/** 全部批次号（去重） */
+/** 真实发酵读数（排除新版计划标记 isPlan，不参与趋势 / 实绩计算） */
+export const selectRealFerments = createSelector(selectAllFerments, (ferments) => ferments.filter((f) => !f.isPlan));
+
+/** 全部批次号（去重，含计划标记所关联的未结束批次） */
 export const selectBatchNumbers = createSelector(selectAllFerments, (ferments) =>
   Array.from(new Set(ferments.map((item) => item.batchNo))).sort()
 );
 
-/** 当前选中批次的读数（按日期升序） */
+/** 当前选中批次的真实读数（按日期升序，排除计划标记） */
 export const selectCurrentBatchFerments = createSelector(
-  selectAllFerments,
+  selectRealFerments,
   selectSelectedBatchNo,
   (ferments, batchNo) =>
     ferments.filter((item) => item.batchNo === batchNo).sort((a, b) => a.date.localeCompare(b.date))
 );
 
-/** 按筛选条件过滤后的读数 */
+/** 按筛选条件过滤后的读数（排除计划标记） */
 export const selectFilteredFerments = createSelector(
-  selectAllFerments,
+  selectRealFerments,
   selectFermentFilter,
   (ferments, filter) => {
     const keyword = String(filter['keyword'] ?? '').trim().toLowerCase();

@@ -12,9 +12,9 @@ function rev<T>(row: T): T & { revision: number; createdAt: number; updatedAt: n
 }
 
 const RECIPES: Array<Omit<RecipeRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
-  { id: 'rc-001', name: '云顶西海岸 IPA', style: 'IPA', targetOg: 1.062, targetFg: 1.012, targetIbu: 62, targetEbc: 14, batchSizeL: 20 },
-  { id: 'rc-002', name: '小麦白啤 Hefe', style: '小麦', targetOg: 1.05, targetFg: 1.011, targetIbu: 18, targetEbc: 8, batchSizeL: 25 },
-  { id: 'rc-003', name: '燕麦世涛', style: '世涛', targetOg: 1.068, targetFg: 1.018, targetIbu: 38, targetEbc: 58, batchSizeL: 18 }
+  { id: 'rc-001', familyId: 'rc-001', versionNo: 1, baseVersionId: null, versionState: '生效中', name: '云顶西海岸 IPA', style: 'IPA', targetOg: 1.062, targetFg: 1.012, targetIbu: 62, targetEbc: 14, batchSizeL: 20 },
+  { id: 'rc-002', familyId: 'rc-002', versionNo: 1, baseVersionId: null, versionState: '生效中', name: '小麦白啤 Hefe', style: '小麦', targetOg: 1.05, targetFg: 1.011, targetIbu: 18, targetEbc: 8, batchSizeL: 25 },
+  { id: 'rc-003', familyId: 'rc-003', versionNo: 1, baseVersionId: null, versionState: '生效中', name: '燕麦世涛', style: '世涛', targetOg: 1.068, targetFg: 1.018, targetIbu: 38, targetEbc: 58, batchSizeL: 18 }
 ];
 
 const MALTS: Array<Omit<MaltRow, 'revision' | 'createdAt' | 'updatedAt'>> = [

@@ -63,7 +63,9 @@ export async function buildRecipeArchive(recipeId: string): Promise<RecipeArchiv
     db.ferments.where('recipeId').equals(recipeId).toArray(),
     db.packagings.where('recipeId').equals(recipeId).toArray()
   ]);
-  const sortedFerments = [...ferments].sort((a, b) => a.date.localeCompare(b.date));
+  const sortedFerments = ferments
+    .filter((f) => !f.isPlan)
+    .sort((a, b) => a.date.localeCompare(b.date));
   const og = sortedFerments.length > 0 ? sortedFerments[0].gravity : recipe.targetOg;
   const fg = sortedFerments.length > 0 ? sortedFerments[sortedFerments.length - 1].gravity : recipe.targetFg;
 
@@ -83,7 +85,7 @@ export async function buildRecipeArchive(recipeId: string): Promise<RecipeArchiv
       hopCount: hops.length,
       mashStepCount: mashSteps.length,
       boilAddCount: boilAdds.length,
-      fermentCount: ferments.length,
+      fermentCount: ferments.filter((f) => !f.isPlan).length,
       grainKg: totalGrainKg(recipe.batchSizeL, recipe.targetOg),
       avgEbc: weightedEbc(malts),
       og,
